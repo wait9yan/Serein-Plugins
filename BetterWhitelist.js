@@ -2,8 +2,8 @@
  * @Author       : Maraudern
  * @Date         : 2023-01-16 20:19:47
  * @LastEditors  : 9Yan
- * @LastEditTime : 2023-05-23 11:52:19
- * @FilePath     : \Serein-Plugins\Serein\plugins\BetterWhitelist.js
+ * @LastEditTime : 2023-05-23 16:36:34
+ * @FilePath     : \Serein-Plugins\BetterWhitelist.js
  * @Description  : 更好的白名单
  */
 /// <reference path="CommandHelper.d.ts"/>
@@ -16,9 +16,8 @@ const FILE = importNamespace("System.IO").File;
 const DIRECTORY = importNamespace("System.IO").Directory;
 const ENCODING = importNamespace("System.Text").Encoding;
 
-const MEMBERS_PATH = "data/members.json";
-
-let whitelistPath, whitelist, config, members;
+let whitelistPath, hasWhitelist, whitelist, config, members;
+let membersPath = "data/members.json";
 let logger = new Logger("betterWhitelist");
 let betterWhitelist = {
 	name: "更好的白名单",
@@ -68,6 +67,7 @@ const IS_CQ_AT = /^\[CQ:at,qq=(\d+)\]$/;
 for (let file of config.whitelist.path) {
 	whitelistPath = serein.getSettingsObject().server.path.replace(IS_PATH, file);
 	if (FILE.Exists(whitelistPath)) {
+		hasWhitelist = true;
 		break;
 	}
 }
@@ -83,12 +83,13 @@ function init() {
 		hasBind: true,
 		gameID: {
 			check: true,
-			minLength: 3,
-			maxLength: 16,
 			allowUnderscore: true,
 			allowSpace: true,
+			minLength: 3,
+			maxLength: 16,
 		},
 		whitelist: {
+			enable: true,
 			autoSync: true,
 			path: [
 				"whitelist.json",
@@ -97,7 +98,7 @@ function init() {
 		},
 		betterMembers: {
 			enable: false,
-			interServer: [
+			interServerList: [
 				"^.*?Player Spawned: (.*?) xuid:.*$",
 				"^.*?Player connected: (.*?), xuid:.*$",
 				"^.*?UUID of player BE_(.*?) is.*$",
@@ -105,7 +106,7 @@ function init() {
 				"^.*?INFO]: (.*?)[(.*?)] logged in",
 				"^.*?INFO]: (.*?) joined the game.*$"
 			],
-			interServerReply: [
+			interServerReplyList: [
 				"^.*?Kicked (.*?) .*You do not have a whitelist!.*$",
 				"^.*?操作员Console踢出了BE_(.*?)，时长：.*$",
 				"^.*?操作员Console踢出了(.*?)，时长：.*$",
@@ -170,7 +171,7 @@ function isGroup(groupID) {
  * @return {Number} 存在则返回数组下标，否则返回-1
  */
 function isMember(gameID) {
-	members = JSON.parse(FILE.ReadAllText(MEMBERS_PATH, ENCODING.UTF8));
+	members = JSON.parse(FILE.ReadAllText(membersPath, ENCODING.UTF8));
 	let data = -1;
 	members.data.some((item, index) => {
 		if (gameID === item.gameID) {
@@ -199,7 +200,7 @@ function isIgnoreGroup(groupID) {
  * @return {Boolean} 成功为true，否则为false
  */
 function bindAdd(groupID, userID, gameID) {
-	if (config.autoSyncWhitelist) {
+	if (config.whitelist.enable && config.whitelist.autoSync) {
 		const whitelistCommand = gameID.includes(' ') ? `whitelist add "${gameID}"` : `whitelist add ${gameID}`;
 		serein.sendCmd(whitelistCommand);
 	}
@@ -249,26 +250,31 @@ function sendGroup(groupID, msg) {
 }
 
 /**
- * @description: 同步serein成员管理至服务器白名单
+ * @description: 同步serein成员管理数据至服务器白名单
  * @param {Number} groupID QQ群号
  * @return {void}
  */
 function syncMemberToWhitelist(groupID) {
-	sendGroup(groupID, "正在同步绑定数据至白名单...");
+	if (!hasWhitelist) {
+		sendGroup(groupID, "未找到白名单文件！");
+		return;
+	} else {
+		sendGroup(groupID, "正在同步绑定数据至白名单...");
+	}
 
 	let whitelistAddList = [];
 	let whitelistRemoveList = [];
 
+	members = JSON.parse(FILE.ReadAllText(membersPath, ENCODING.UTF8));
 	whitelist = JSON.parse(FILE.ReadAllText(whitelistPath, ENCODING.UTF8));
-	members = JSON.parse(FILE.ReadAllText(MEMBERS_PATH, ENCODING.UTF8));
 
 	setTimeout(() => {
 		let oldWhitelist = whitelist.map((item) => item.name);
 		let newMembers = members.data.filter((item) => !oldWhitelist.includes(item.gameID));
 		newMembers.forEach((item) => {
 			whitelistAddList.push(item.gameID);
-			let whitelistAddCmd = item.gameID.includes(' ') ? `whitelist add "${item.gameID}"` : `whitelist add ${item.gameID}`;
-			serein.sendCmd(whitelistAddCmd);
+			let whitelistCommand = item.gameID.includes(' ') ? `whitelist add "${item.gameID}"` : `whitelist add ${item.gameID}`;
+			serein.sendCmd(whitelistCommand);
 		});
 
 		if (whitelistAddList.length) {
@@ -281,8 +287,8 @@ function syncMemberToWhitelist(groupID) {
 		newWhitelist.forEach((item) => {
 			if (item.gameID) {
 				whitelistRemoveList.push(item.name);
-				let whitelistRemoveCmd = item.gameID.includes(' ') ? `whitelist remove "${item.gameID}"` : `whitelist remove ${item.gameID}`;
-				serein.sendCmd(whitelistRemoveCmd);
+				let whitelistCommand = item.gameID.includes(' ') ? `whitelist remove "${item.gameID}"` : `whitelist remove ${item.gameID}`;
+				serein.sendCmd(whitelistCommand);
 			}
 		});
 
@@ -292,7 +298,7 @@ function syncMemberToWhitelist(groupID) {
 		}
 
 		if (!whitelistAddList.length && !whitelistRemoveList.length) {
-			sendGroup(groupID, "没有需要同步的白名单");
+			sendGroup(groupID, "没有需要同步的绑定数据");
 		}
 	}, 100);
 	return;
@@ -469,6 +475,11 @@ serein.setListener("onReceiveGroupMessage", (groupID, userID, msg, shownName) =>
 			return;
 		}
 
+		if (!config.whitelist.enable) {
+			sendGroup(groupID, `白名单同步失败！\n已关闭服务器白名单！`);
+			return;
+		}
+
 		if (!command.length) {
 			syncMemberToWhitelist(groupID);
 			return;
@@ -500,94 +511,107 @@ serein.setListener("onReceiveGroupMessage", (groupID, userID, msg, shownName) =>
 			return;
 		}
 
-		whitelist = JSON.parse(FILE.ReadAllText(whitelistPath, ENCODING.UTF8));
-		members = JSON.parse(FILE.ReadAllText(MEMBERS_PATH, ENCODING.UTF8));
-
-		let Array = [];
-		for (let i = 0; i < members.data.length; i++) {
-			let isCorrect = "❗";
-			for (let j = 0; j < whitelist.length; j++) {
-				if (members.data[i].gameID === whitelist[j].name) {
-					isCorrect = "✔";
-				}
-			}
-			let isName = members.data[i].card ? members.data[i].card : members.data[i].nickname ? members.data[i].nickname : members.data[i].id;
-			Array.push({
-				type: "node",
-				data: {
-					name: "『" + i + "』" + isName,
-					uin: members.data[i].id,
-					content: "成员管理数据：\n" + members.data[i].gameID + "(" + members.data[i].id + ")\n服务器白名单：" + isCorrect,
-				},
-			});
+		members = JSON.parse(FILE.ReadAllText(membersPath, ENCODING.UTF8));
+		if (config.whitelist.enable && hasWhitelist) {
+			whitelist = JSON.parse(FILE.ReadAllText(whitelistPath, ENCODING.UTF8));
 		}
 
-		if (config.sendGroup) {
-			while (Array.length > 90) {
-				serein.sendPacket(
-					'{"action": "send_group_forward_msg","params": {"group_id": "' + groupID + '","messages": ' + JSON.stringify(Array.splice(0, 90)) + "}}"
-				);
+		let newArray = members.data.map((member, index) => {
+			let content = `成员管理数据：\n${member.gameID}(${member.id})`;
+			if (config.whitelist.enable && hasWhitelist) {
+				let isCorrect = whitelist.some(item => item.name === member.gameID) ? "✔️" : "❌";
+				content += `\n服务器白名单：${isCorrect}`;
 			}
-			serein.sendPacket('{"action": "send_group_forward_msg","params": {"group_id": "' + groupID + '","messages": ' + JSON.stringify(Array) + "}}");
+			let isName = member.card || member.nickname || member.id;
+			return {
+				type: "node",
+				data: {
+					name: `『${index}』${isName}`,
+					uin: member.id,
+					content: content,
+				},
+			};
+		});
+
+		let Array = newArray;
+
+		if (config.sendGroup) {
+			const chunkSize = 100;
+
+			while (Array.length > chunkSize) {
+				const chunk = Array.splice(0, chunkSize);
+				serein.sendPacket(JSON.stringify({
+					action: "send_group_forward_msg",
+					params: {
+						group_id: groupID,
+						messages: chunk,
+					},
+				}));
+			}
+
+			serein.sendPacket(JSON.stringify({
+				action: "send_group_forward_msg",
+				params: {
+					group_id: groupID,
+					messages: Array,
+				},
+			}));
 		}
 		return;
 	}
 });
 
 serein.setListener("onServerStart", () => {
-	if (!config.autoSyncWhitelist) return;
+	if (!config.whitelist.enable || !config.whitelist.autoSync) return;
 
-	let groupID;
-	for (let i = 0; i < serein.getSettingsObject().bot.groupList.length; i++) {
-		if (!isIgnoreGroup(serein.getSettingsObject().bot.groupList[i])) {
-			groupID = serein.getSettingsObject().bot.groupList[i];
-			break;
-		}
+	const groupList = serein.getSettingsObject().bot.groupList;
+	const validGroups = groupList.filter(group => !isIgnoreGroup(group));
+
+	for (const groupID of validGroups) {
+		syncMemberToWhitelist(groupID);
+		break;
 	}
-	syncMemberToWhitelist(groupID);
 });
 
 serein.setListener("onGroupDecrease", (groupID, userID) => {
 	if (!config.exitGroup || !isGroup(groupID) || isIgnoreGroup(groupID)) return;
 
-	sendGroup(groupID, "群成员 " + userID + " 退群了，尝试删除白名单");
+	sendGroup(groupID, `群成员 ${userID} 退群了，尝试删除白名单`);
 
-	let gameID = serein.getGameID(userID);
+	const gameID = serein.getGameID(userID);
 	if (!gameID) {
-		sendGroup(groupID, "群成员 " + userID + " 未绑定白名单！");
+		sendGroup(groupID, `群成员 ${userID} 未绑定白名单！`);
 		return;
 	}
 
 	if (whitelistRemove(userID, gameID)) {
 		setTimeout(() => {
 			sendGroup(groupID, `成功删除：${gameID}（${userID}）`);
-		}, 500);
+		}, 100);
 	} else {
-		sendGroup(groupID, `删除白名单失败，原因未知！\n（可联系插件作者反馈问题）`);
+		sendGroup(groupID, `删除白名单失败！\n（可联系插件作者反馈问题）`);
 	}
-	return;
+
 });
 
 serein.setListener("onServerOutput", (msg) => {
 	if (!config.betterMembers.enable) return;
+
 	let gameID, gameIDReply;
 
-	for (let i = 0; i < config.betterMembers.interServerReply.length; i++) {
-		let interServerReply = new RegExp(config.betterMembers.interServerReply[i]);
+	for (const regex of config.betterMembers.interServerReplyList) {
+		const interServerReply = new RegExp(regex);
 		if (interServerReply.test(msg)) {
 			gameIDReply = msg.replace(interServerReply, "$1");
-			let index = 0;
-			while (index !== -1) {
-				index = notGameID.indexOf(gameIDReply);
-				if (index > -1) {
-					notGameID.splice(index, 1);
-				}
+			let index = notGameID.indexOf(gameIDReply);
+			if (index > -1) {
+				notGameID.splice(index, 1);
 			}
 		}
 	}
 
-	for (let i = 0; i < config.betterMembers.interServer.length; i++) {
-		let interServer = new RegExp(config.betterMembers.interServer[i]);
+	for (const regex of config.betterMembers.interServerList) {
+		const interServer = new RegExp(regex);
 		if (interServer.test(msg)) {
 			gameID = msg.replace(interServer, "$1");
 			break;
@@ -596,23 +620,19 @@ serein.setListener("onServerOutput", (msg) => {
 
 	if (!gameID) return;
 
-	members = JSON.parse(FILE.ReadAllText(MEMBERS_PATH, ENCODING.UTF8));
-	for (let i = 0; i < members.data.length; i++) {
-		if (members.data[i].gameID === gameID) return;
+	members = JSON.parse(FILE.ReadAllText(membersPath, ENCODING.UTF8));
+	if (members.data.some(member => member.gameID === gameID)) {
+		return;
 	}
 
-	if (notGameID.indexOf(gameID) == -1) {
+	if (!notGameID.includes(gameID)) {
 		notGameID.push(gameID);
 
-		let groupID;
-		for (let i = 0; i < serein.getSettingsObject().bot.groupList.length; i++) {
-			if (!isIgnoreGroup(serein.getSettingsObject().bot.groupList[i])) {
-				groupID = serein.getSettingsObject().bot.groupList[i];
-				break;
-			}
-		}
+		const groupList = serein.getSettingsObject().bot.groupList;
+		const groupID = groupList.find(groupID => !isIgnoreGroup(groupID));
+
 		setTimeout(() => {
-			serein.sendGroup(groupID, gameID + " 没有白名单，踢出服务器");
+			serein.sendGroup(groupID, `${gameID} 没有白名单，踢出服务器`);
 		}, 500);
 	}
 });
