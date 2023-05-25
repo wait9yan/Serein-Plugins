@@ -2,7 +2,7 @@
  * @Author       : Maraudern
  * @Date         : 2023-01-16 20:19:47
  * @LastEditors  : 9Yan
- * @LastEditTime : 2023-05-23 16:36:34
+ * @LastEditTime : 2023-05-25 22:39:17
  * @FilePath     : \Serein-Plugins\BetterWhitelist.js
  * @Description  : 更好的白名单
  */
@@ -17,6 +17,7 @@ const DIRECTORY = importNamespace("System.IO").Directory;
 const ENCODING = importNamespace("System.Text").Encoding;
 
 let whitelistPath, hasWhitelist, whitelist, config, members;
+let noWhitelist = [];
 let membersPath = "data/members.json";
 let logger = new Logger("betterWhitelist");
 let betterWhitelist = {
@@ -48,6 +49,7 @@ if (config.version != betterWhitelist.version) {
 
 let gameIDRegex = "^[0-9A-Za-z";
 let gameIDTips = "- 数字\\字母";
+let geyserIDRegex = "^BE_";
 if (config.gameID.allowUnderscore) {
 	gameIDRegex += "_";
 	gameIDTips += "\\下划线";
@@ -56,9 +58,12 @@ if (config.gameID.allowSpace) {
 	gameIDRegex += " ";
 	gameIDTips += "\\空格";
 }
+geyserIDRegex += `.{11,${config.gameID.maxLength - 3}}$`
 gameIDRegex += `]{${config.gameID.minLength},${config.gameID.maxLength}}$`;
 gameIDTips += `组成\n- 长度 ${config.gameID.minLength} 到 ${config.gameID.maxLength} 个字符`;
 
+const IS_GEYSER_BE_ID = /^BE_(.*?)$/;
+const IS_GEYSER_ID = /^.{14,16}$/;
 const IS_GAME_ID = new RegExp(gameIDRegex);
 const IS_PATH = /([^<>/\\\|:""\*\?]+)\.\w+$/;
 const IS_QQ_NUMBER = /^[0-9]{5,11}$/;
@@ -98,21 +103,18 @@ function init() {
 		},
 		betterMembers: {
 			enable: false,
+			isGeyser: true,
 			interServerList: [
 				"^.*?Player Spawned: (.*?) xuid:.*$",
 				"^.*?Player connected: (.*?), xuid:.*$",
-				"^.*?UUID of player BE_(.*?) is.*$",
-				"^.*?UUID of player (.*?) is.*$",
-				"^.*?INFO]: (.*?)[(.*?)] logged in",
+				"^.*\\(登录为: (.*?)\\) 已连接到 Java 服务器.*$",
 				"^.*?INFO]: (.*?) joined the game.*$"
 			],
 			interServerReplyList: [
 				"^.*?Kicked (.*?) .*You do not have a whitelist!.*$",
-				"^.*?操作员Console踢出了BE_(.*?)，时长：.*$",
-				"^.*?操作员Console踢出了(.*?)，时长：.*$",
 				"^.*?Spigot] (.*?) 因为 You do not have a whitelist!.*$",
 				"^.*?INFO]: (.*?) lost connection: You do not have a whitelist!.*$",
-				"^.*?INFO]: (.*?) left the game.*$"
+				"^.*?INFO]: (.*?) left the game.*$",
 			]
 		},
 		command: {
@@ -229,10 +231,16 @@ function bindAdd(groupID, userID, gameID) {
  */
 function whitelistRemove(userID, gameID) {
 	const whitelistCommand = gameID.includes(' ') ? `whitelist remove "${gameID}"` : `whitelist remove ${gameID}`;
-	const kickCommand = `kick ${gameID} You do not have a whitelist!`;
+	const kickCommand = gameID.includes(' ') ? `kick "${gameID}" You do not have a whitelist!` : `kick ${gameID} You do not have a whitelist!`;
 
 	serein.sendCmd(whitelistCommand);
 	serein.sendCmd(kickCommand);
+
+	if (IS_GEYSER_ID.test(gameID)) {
+		gameID = gameID.slice(0, 13);
+		const kickCommand = gameID.includes(' ') ? `kick "${gameID}" You do not have a whitelist!` : `kick ${gameID} You do not have a whitelist!`;
+		serein.sendCmd(kickCommand);
+	}
 
 	return serein.unbindMember(userID);
 }
@@ -389,17 +397,17 @@ serein.setListener("onReceiveGroupMessage", (groupID, userID, msg, shownName) =>
 
 	if (config.command.addBind.keywords.includes(keyword)) {
 		if (!hasPermission(userID)) {
-			sendGroup(groupID, `添加绑定失败！\n您没有使用<${keyword}>的权限！`);
+			sendGroup(groupID, `绑定添加失败！\n您没有使用<${keyword}>的权限！`);
 			return;
 		}
 
 		if (!command.length) {
-			sendGroup(groupID, `添加绑定失败！语法错误\n应当为：<${keyword}> <QQ号(@成员)> <gameID>`);
+			sendGroup(groupID, `绑定添加失败！语法错误\n应当为：<${keyword}> <QQ号(@成员)> <gameID>`);
 			return;
 		}
 
 		if (!IS_QQ_NUMBER.test(command[0].replace(IS_CQ_AT, "$1"))) {
-			sendGroup(groupID, `添加绑定失败！\n错误的：>>${command[0].replace(IS_CQ_AT, "$1")}<<\n应当为：<QQ号(@成员)>`);
+			sendGroup(groupID, `绑定添加失败！\n错误的：>>${command[0].replace(IS_CQ_AT, "$1")}<<\n应当为：<QQ号(@成员)>`);
 			return;
 		}
 
@@ -408,13 +416,13 @@ serein.setListener("onReceiveGroupMessage", (groupID, userID, msg, shownName) =>
 
 		let text = command.join(" ");
 		if (config.gameID.check && !IS_GAME_ID.test(text)) {
-			sendGroup(groupID, `添加绑定失败！\n错误的：>>${text}<<\n应当为：<gameID>\n${gameIDTips}`);
+			sendGroup(groupID, `绑定添加失败！\n错误的：>>${text}<<\n应当为：<gameID>\n${gameIDTips}`);
 			return;
 		}
 
 		let index = isMember(text);
 		if (index + 1) {
-			sendGroup(groupID, `添加绑定失败！已存在相同ID\n${text}（${members.data[index].id}）`);
+			sendGroup(groupID, `绑定添加失败！已存在相同ID\n${text}（${members.data[index].id}）`);
 			return;
 		}
 
@@ -424,32 +432,32 @@ serein.setListener("onReceiveGroupMessage", (groupID, userID, msg, shownName) =>
 			if (bindAdd(groupID, qqID, text)) {
 				sendGroup(groupID, `已存在数据：\n${gameID}(${qqID})\n成功修改为：\n${text}(${qqID})`);
 			} else {
-				sendGroup(groupID, `添加绑定失败！\n（可联系插件作者反馈问题）`);
+				sendGroup(groupID, `绑定添加失败！\n（可联系插件作者反馈问题）`);
 			}
 			return;
 		}
 
 		if (bindAdd(groupID, qqID, text)) {
-			sendGroup(groupID, `添加绑定成功：\n${text}（${qqID}）`);
+			sendGroup(groupID, `绑定添加成功：\n${text}（${qqID}）`);
 		} else {
-			sendGroup(groupID, "添加绑定失败！\n（可联系插件作者反馈问题）");
+			sendGroup(groupID, "绑定添加失败！\n（可联系插件作者反馈问题）");
 		}
 		return;
 	}
 
 	if (config.command.removeBind.keywords.includes(keyword)) {
 		if (!hasPermission(userID)) {
-			sendGroup(groupID, `删除绑定失败！\n您没有使用<${keyword}>的权限！`);
+			sendGroup(groupID, `绑定删除失败！\n您没有使用<${keyword}>的权限！`);
 			return;
 		}
 
 		if (!command.length) {
-			sendGroup(groupID, `删除绑定失败！\n语法错误，请发送：\n<${keyword}> <QQ号(@成员)>`);
+			sendGroup(groupID, `绑定删除失败！\n语法错误，请发送：\n<${keyword}> <QQ号(@成员)>`);
 			return;
 		}
 
 		if (!IS_QQ_NUMBER.test(command[0].replace(IS_CQ_AT, "$1"))) {
-			sendGroup(groupID, `删除绑定失败！\n错误的：>>${command[0].replace(IS_CQ_AT, "$1")}<<\n应当为：<QQ号(@成员)>`);
+			sendGroup(groupID, `绑定删除失败！\n错误的：>>${command[0].replace(IS_CQ_AT, "$1")}<<\n应当为：<QQ号(@成员)>`);
 			return;
 		}
 
@@ -457,14 +465,14 @@ serein.setListener("onReceiveGroupMessage", (groupID, userID, msg, shownName) =>
 		let gameID = serein.getGameID(qqID);
 
 		if (!gameID) {
-			sendGroup(groupID, "删除绑定失败！\n该成员还未绑定ID");
+			sendGroup(groupID, "绑定删除失败！\n该成员还未绑定ID");
 			return;
 		}
 
 		if (whitelistRemove(qqID, gameID)) {
-			sendGroup(groupID, `成功删除绑定：\n${gameID}（${qqID}）`);
+			sendGroup(groupID, `绑定删除成功：\n${gameID}（${qqID}）`);
 		} else {
-			sendGroup(groupID, "删除绑定失败！\n（可联系插件作者反馈问题）");
+			sendGroup(groupID, "绑定删除失败！\n（可联系插件作者反馈问题）");
 		}
 		return;
 	}
@@ -576,20 +584,20 @@ serein.setListener("onServerStart", () => {
 serein.setListener("onGroupDecrease", (groupID, userID) => {
 	if (!config.exitGroup || !isGroup(groupID) || isIgnoreGroup(groupID)) return;
 
-	sendGroup(groupID, `群成员 ${userID} 退群了，尝试删除白名单`);
+	sendGroup(groupID, `${userID} 退群了，尝试删除白名单`);
 
 	const gameID = serein.getGameID(userID);
 	if (!gameID) {
-		sendGroup(groupID, `群成员 ${userID} 未绑定白名单！`);
+		sendGroup(groupID, `${userID} 未绑定白名单！`);
 		return;
 	}
 
 	if (whitelistRemove(userID, gameID)) {
 		setTimeout(() => {
-			sendGroup(groupID, `成功删除：${gameID}（${userID}）`);
+			sendGroup(groupID, `白名单删除成功：\n${gameID}（${userID}）`);
 		}, 100);
 	} else {
-		sendGroup(groupID, `删除白名单失败！\n（可联系插件作者反馈问题）`);
+		sendGroup(groupID, `白名单删除失败！\n（可联系插件作者反馈问题）`);
 	}
 
 });
@@ -597,18 +605,15 @@ serein.setListener("onGroupDecrease", (groupID, userID) => {
 serein.setListener("onServerOutput", (msg) => {
 	if (!config.betterMembers.enable) return;
 
-	let gameID, gameIDReply;
-
 	for (const regex of config.betterMembers.interServerReplyList) {
 		const interServerReply = new RegExp(regex);
 		if (interServerReply.test(msg)) {
-			gameIDReply = msg.replace(interServerReply, "$1");
-			let index = notGameID.indexOf(gameIDReply);
-			if (index > -1) {
-				notGameID.splice(index, 1);
-			}
+			let gameIDReply = msg.replace(interServerReply, "$1");
+			noWhitelist = noWhitelist.filter(item => item !== gameIDReply && item !== gameIDReply.replace(/\s/g, "_"));
 		}
 	}
+
+	let gameID;
 
 	for (const regex of config.betterMembers.interServerList) {
 		const interServer = new RegExp(regex);
@@ -621,31 +626,33 @@ serein.setListener("onServerOutput", (msg) => {
 	if (!gameID) return;
 
 	members = JSON.parse(FILE.ReadAllText(membersPath, ENCODING.UTF8));
+
 	if (members.data.some(member => member.gameID === gameID)) {
 		return;
 	}
 
-	if (!notGameID.includes(gameID)) {
-		notGameID.push(gameID);
+	if (IS_GEYSER_BE_ID.test(gameID)) {
+		let geyserID = gameID.slice(3);
+		if (members.data.some(member => member.gameID.slice(0, 13) === geyserID)) {
+			return;
+		}
+	}
+
+	if (!noWhitelist.includes(gameID)) {
+		noWhitelist.push(gameID);
 
 		const groupList = serein.getSettingsObject().bot.groupList;
 		const groupID = groupList.find(groupID => !isIgnoreGroup(groupID));
 
 		setTimeout(() => {
-			serein.sendGroup(groupID, `${gameID} 没有白名单，踢出服务器`);
+			serein.sendGroup(groupID, `${gameID} 没有白名单！`);
 		}, 500);
 	}
 });
 
-let notGameID = [];
 setInterval(() => {
-	for (let i = 0; i < notGameID.length; i++) {
-		if (notGameID[i].indexOf(' ') >= 0) {
-			serein.sendCmd(`kick "${notGameID[i]}" You do not have a whitelist!`);
-			serein.sendCmd(`kick "BE_${notGameID[i]}" You do not have a whitelist!`);
-		} else {
-			serein.sendCmd(`kick ${notGameID[i]} You do not have a whitelist!`);
-			serein.sendCmd(`kick BE_${notGameID[i]} You do not have a whitelist!`);
-		}
+	for (let gameID of noWhitelist) {
+		const kickCommand = gameID.includes(' ') ? `kick "${gameID}" You do not have a whitelist!` : `kick ${gameID} You do not have a whitelist!`;
+		serein.sendCmd(kickCommand);
 	}
 }, 1000);
