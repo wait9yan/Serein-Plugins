@@ -2,7 +2,7 @@
  * @Author       : Maraudern
  * @Date         : 2023-01-16 20:19:47
  * @LastEditors  : 9Yan
- * @LastEditTime : 2023-05-25 22:39:17
+ * @LastEditTime : 2023-05-26 00:02:21
  * @FilePath     : \Serein-Plugins\BetterWhitelist.js
  * @Description  : 更好的白名单
  */
@@ -328,14 +328,14 @@ serein.setListener("onReceiveGroupMessage", (groupID, userID, msg, shownName) =>
 
 	for (let key of keywords) {
 		if (keyword.startsWith(key) && keyword !== key) {
-			sendGroup(groupID, `关键词${key}后需要添加空格！`);
+			sendGroup(groupID, `关键词<${key}>后需要添加空格！`);
 			return;
 		}
 	}
 
 	if (config.command.bind.keywords.includes(keyword)) {
 		if (!hasPermission(userID) && !config.hasBind) {
-			sendGroup(groupID, `绑定失败！\n您没有使用${keyword}的权限！`);
+			sendGroup(groupID, `绑定失败！\n您没有使用<${keyword}>的权限！`);
 			return;
 		}
 
